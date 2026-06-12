@@ -1,4 +1,6 @@
 make:
 	ldc2 weather_temp.d
-	rm weather_temp.o
+	strip weather_temp
+
+compress:
 	upx -9 weather_temp
