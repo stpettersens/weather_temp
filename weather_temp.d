@@ -1,10 +1,3 @@
-/*
-   Simple weather temperature application (to write in bar such as dwmblocks) using the Open-Meteo API.
-   Copyright 2024-2025 Sam Saint-Pettersen.
-
-   Released under the MIT License.
-*/
-
 import std.file;
 import std.conv;
 import std.stdio;
@@ -16,50 +9,99 @@ struct weather_opts {
     float latitude;
     float longitude;
     string timezone;
-    char unit;
+    string unit;
+    bool verbose;
 }
 
 int get_weather_temp(weather_opts w) {
-    string endpoint = format("https://api.open-meteo.com/v1/forecast?latitude=%.2f", w.latitude);
-    endpoint ~= format("&longitude=%.2f&hourly=temperature_2m&current=temperature_2m", w.longitude);
+    string endpoint = format("https://api.open-meteo.com/v1/forecast?latitude=%.2f",
+    w.latitude);
+
+    endpoint ~= format("&longitude=%.2f&current=temperature_2m,relative_humidity_2m",
+    w.longitude);
 
     // UTC timezone does not need a parameter to the API.
     if (w.timezone != "UTC")
         endpoint ~= format("&timezone=%s", w.timezone);
 
-    string curl_switch = "";
+    // Thanks, Markus - we should fail when the API returns non HTTP 2xx code:
+    string curl_switch = "--fail";
     string json = "/tmp/weather_temp.json";
     version(Windows) {
-        curl_switch = " -k ";
+        curl_switch = "-k --fail";
         json = "weather_temp.json";
     }
 
-    string request = format("curl -s%s \"%s\" | jq .current > %s", curl_switch, endpoint, json);
+    string request = format("curl -s %s \"%s\" | jq .current > %s", curl_switch, endpoint, json);
+    if (w.verbose) {
+        writefln("Running '%s'...", request);
+    }
+
     auto api = executeShell(request);
     if (api.status != 0) {
         writeln("Failed");
-
         return -1;
     }
 
-    string get_temp = format("jq .temperature_2m %s", json);
+    string get_temp  = format("jq .temperature_2m %s", json);
+    string get_humid = format("jq .relative_humidity_2m %s", json);
+    if (w.verbose) {
+        writefln("Running '%s'...", get_temp);
+        writefln("Running '%s'...", get_humid);
+    }
+
     auto temp = executeShell(get_temp);
-    float curr_temp = to!float(strip(temp.output));
+    float curr_temp = to!float(strip(temp.output)); // API returns temp in Celsius.
 
-    if (w.unit == 'F') {
-        curr_temp = ((curr_temp * 1.8) + 32);
-    }
-    else if (w.unit == 'K') {
-        curr_temp = (curr_temp + 273.15);
+    auto humid = executeShell(get_humid);
+    int curr_humid = to!int(strip(humid.output)); // API returns humidity in %.
+
+    float f_temp = ((curr_temp * 1.8) + 32);
+    string unit = w.unit;
+
+    switch (w.unit) {
+        case "C": // Celsius
+            break;
+
+        case "F": // Fahrenheit
+            curr_temp = f_temp;
+            break;
+
+        case "K": // Kelvin
+            curr_temp = (curr_temp + 273.15);
+            break;
+
+        case "R": // Rankine
+        case "Ra":
+            curr_temp = (f_temp + 459.67);
+            unit = "R";
+            break;
+
+        case "Ré": // Réaumur
+        case "Re":
+            curr_temp = (curr_temp * 0.8);
+            unit = "Ré";
+            break;
+
+        case "Rø": // Rømer
+        case "Ro":
+            curr_temp = ((curr_temp * 0.525) + 7.5);
+            unit = "Rø";
+            break;
+
+        default: // Invalid unit code was provided.
+            writeln("Error: Invalid unit");
+            return -1;
     }
 
-    writefln("%.1f %c", curr_temp, w.unit);
+    writefln("%.1f %s (%d %%)", curr_temp, unit, curr_humid);
 
     return 0;
 }
 
-weather_opts read_config_file() {
+weather_opts read_config_file(bool verbose) {
     weather_opts w;
+    w.verbose = verbose;
     string cfg = "/etc/weather_temp.cfg";
     version(Windows) {
         cfg = "weather_temp.cfg";
@@ -84,8 +126,8 @@ weather_opts read_config_file() {
             else if (l.canFind("Z")) {
                 w.timezone = "UTC"; // Zulu time is UTC.
             }
-            else if (l.canFind("F") || l.canFind("C") || l.canFind("K")) {
-                w.unit = to!char(l);
+            else {
+                w.unit = l;
             }
         }
 
@@ -96,12 +138,16 @@ weather_opts read_config_file() {
     w.latitude = 40.71427;
     w.longitude = -74.00597;
     w.timezone = "America/New_York";
-    w.unit = 'F';
+    w.unit = "F";
 
     return w;
 }
 
-int main() {
-    int status = get_weather_temp(read_config_file());
+int main(string[] args) {
+    bool verbose = false;
+    if (args.length > 1 && (args[1] == "-v" || args[1] == "--verbose"))
+        verbose = true;
+
+    int status = get_weather_temp(read_config_file(verbose));
     return status;
 }
