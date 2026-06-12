@@ -1,6 +1,7 @@
 import std.file;
 import std.conv;
 import std.stdio;
+import std.getopt;
 import std.string;
 import std.process;
 import std.algorithm;
@@ -11,6 +12,7 @@ struct weather_opts {
     string timezone;
     string unit;
     bool verbose;
+    bool only_temp;
 }
 
 int get_weather_temp(weather_opts w) {
@@ -47,7 +49,7 @@ int get_weather_temp(weather_opts w) {
     string get_humid = format("jq .relative_humidity_2m %s", json);
     if (w.verbose) {
         writefln("Running '%s'...", get_temp);
-        writefln("Running '%s'...", get_humid);
+        if (!w.only_temp) writefln("Running '%s'...", get_humid);
     }
 
     auto temp = executeShell(get_temp);
@@ -94,14 +96,20 @@ int get_weather_temp(weather_opts w) {
             return -1;
     }
 
-    writefln("%.1f %s (%d %%)", curr_temp, unit, curr_humid);
+    if (w.only_temp) {
+        writefln("%.1f %s", curr_temp, unit);
+        return 0;
+    }
 
+    writefln("%.1f %s (%d %%)", curr_temp, unit, curr_humid);
     return 0;
 }
 
-weather_opts read_config_file(bool verbose) {
+weather_opts read_config_file(bool verbose, bool only_temp) {
     weather_opts w;
     w.verbose = verbose;
+    w.only_temp = only_temp;
+
     string cfg = "/etc/weather_temp.cfg";
     version(Windows) {
         cfg = "weather_temp.cfg";
@@ -144,10 +152,22 @@ weather_opts read_config_file(bool verbose) {
 }
 
 int main(string[] args) {
+    int status = 0;
     bool verbose = false;
-    if (args.length > 1 && (args[1] == "-v" || args[1] == "--verbose"))
-        verbose = true;
+    bool only_temp = false;
 
-    int status = get_weather_temp(read_config_file(verbose));
+    auto cli = getopt(
+        args,
+        "verbose|v", "Show underlying invokations to curl and jq.", &verbose,
+        "temp|t", "Only print temperature, not humidity.", &only_temp,
+    );
+
+    // -h|--help
+    if (cli.helpWanted) {
+        defaultGetoptPrinter(format("%s\n", args[0]), cli.options);
+        return status;
+    }
+
+    status = get_weather_temp(read_config_file(verbose, only_temp));
     return status;
 }
