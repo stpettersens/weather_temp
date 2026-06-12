@@ -9,5 +9,5 @@ Build requires:
 
 Run requires:
 
-* curl
-* jq
+* `curl`
+* `jq`
