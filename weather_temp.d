@@ -15,6 +15,24 @@ struct weather_opts {
     bool only_temp;
 }
 
+bool have_program(string program) {
+    bool have = true;
+    auto prog = executeShell(format("%s --help", program));
+    if (prog.status != 0) {
+        // When curl/jq is not found:
+        writefln("Please install %s.\n", program);
+        version(Linux) {
+            // Prompt to install with typical package managers on Linux.
+            writefln("# apt install %s", program);
+            writefln("# pacman -S %s", program);
+            writefln("# xbps-install -S %s", program);
+            writeln();
+        }
+        have = false;  
+    }
+    return have;
+}
+
 int get_weather_temp(weather_opts w) {
     string endpoint = format("https://api.open-meteo.com/v1/forecast?latitude=%.2f",
     w.latitude);
@@ -92,7 +110,7 @@ int get_weather_temp(weather_opts w) {
             break;
 
         default: // Invalid unit code was provided.
-            writeln("Error: Invalid unit");
+            writeln("Error: Invalid unit.\n");
             return -1;
     }
 
@@ -118,24 +136,23 @@ weather_opts read_config_file(bool verbose, bool only_temp) {
         auto f = File(cfg);
         foreach (line; f.byLine()) {
             string l = to!string(line);
-            if (l.startsWith("#")) {
-                // Ignore any comment lines in configuration file.
-                continue;
-            }
-
-            if (l.canFind(",")) {
-                auto ll = l.split(",");
-                w.latitude = to!float(ll[0]);
-                w.longitude = to!float(ll[1]);
-            }
-            else if (l.canFind("/")) {
-                w.timezone = l;
-            }
-            else if (l.canFind("Z")) {
-                w.timezone = "UTC"; // Zulu time is UTC.
-            }
-            else {
-                w.unit = l;
+            
+            // Ignore any comment lines in configuration file.
+            if (!l.startsWith("#")) {
+                if (l.canFind(",")) {
+                    auto ll = l.split(",");
+                    w.latitude = to!float(ll[0]);
+                    w.longitude = to!float(ll[1]);
+                }
+                else if (l.canFind("/")) {
+                    w.timezone = l;
+                }
+                else if (l.canFind("Z")) {
+                    w.timezone = "UTC"; // Zulu time is UTC.
+                }
+                else {
+                    w.unit = l;
+                }
             }
         }
 
@@ -152,7 +169,6 @@ weather_opts read_config_file(bool verbose, bool only_temp) {
 }
 
 int main(string[] args) {
-    int status = 0;
     bool verbose = false;
     bool only_temp = false;
 
@@ -165,9 +181,11 @@ int main(string[] args) {
     // -h|--help
     if (cli.helpWanted) {
         defaultGetoptPrinter(format("%s\n", args[0]), cli.options);
-        return status;
+        return 0;
     }
+    
+    if (!have_program("curl") || !have_program("jq"))
+        return -1;
 
-    status = get_weather_temp(read_config_file(verbose, only_temp));
-    return status;
+    return get_weather_temp(read_config_file(verbose, only_temp));
 }
