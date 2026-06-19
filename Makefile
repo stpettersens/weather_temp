@@ -17,7 +17,7 @@ ifeq ($(uname),Windows)
 endif
 
 make:
-	ldc2 $(switches)$(SRC)
+	ldc2 $(SRC)
 	$(rm) $(TARGET)$(o)
 	strip $(TARGET)$(exe)
 	./$(TARGET)$(exe)
